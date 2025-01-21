@@ -13,18 +13,17 @@ from sqlglot.dialects.dialect import (
     unit_to_str,
 )
 from sqlglot.dialects.hive import Hive
-from sqlglot.helper import seq_get, ensure_list
+from sqlglot.helper import ensure_list, seq_get
 from sqlglot.tokens import TokenType
 from sqlglot.transforms import (
-    preprocess,
-    remove_unique_constraints,
     ctas_with_tmp_tables_to_create_tmp_view,
     move_schema_columns_to_partitioned_by,
+    preprocess,
+    remove_unique_constraints,
 )
 
 if t.TYPE_CHECKING:
     from sqlglot._typing import E
-
     from sqlglot.optimizer.annotate_types import TypeAnnotator
 
 
@@ -83,9 +82,7 @@ def _unalias_pivot(expression: exp.Expression) -> exp.Expression:
             alias = pivot.args["alias"].pop()
             return exp.From(
                 this=expression.this.replace(
-                    exp.select("*")
-                    .from_(expression.this.copy(), copy=False)
-                    .subquery(alias=alias, copy=False)
+                    exp.select("*").from_(expression.this.copy(), copy=False).subquery(alias=alias, copy=False)
                 )
             )
 
@@ -177,9 +174,7 @@ class Spark2(Hive):
             "APPROX_PERCENTILE": exp.ApproxQuantile.from_arg_list,
             "BOOLEAN": _build_as_cast("boolean"),
             "DATE": _build_as_cast("date"),
-            "DATE_TRUNC": lambda args: exp.TimestampTrunc(
-                this=seq_get(args, 1), unit=exp.var(seq_get(args, 0))
-            ),
+            "DATE_TRUNC": lambda args: exp.TimestampTrunc(this=seq_get(args, 1), unit=exp.var(seq_get(args, 0))),
             "DAYOFMONTH": lambda args: exp.DayOfMonth(this=exp.TsOrDsToDate(this=seq_get(args, 0))),
             "DAYOFWEEK": lambda args: exp.DayOfWeek(this=exp.TsOrDsToDate(this=seq_get(args, 0))),
             "DAYOFYEAR": lambda args: exp.DayOfYear(this=exp.TsOrDsToDate(this=seq_get(args, 0))),
@@ -256,20 +251,15 @@ class Spark2(Hive):
         TRANSFORMS = {
             **Hive.Generator.TRANSFORMS,
             exp.ApproxDistinct: rename_func("APPROX_COUNT_DISTINCT"),
-            exp.ArraySum: lambda self,
-            e: f"AGGREGATE({self.sql(e, 'this')}, 0, (acc, x) -> acc + x, acc -> acc)",
+            exp.ArraySum: lambda self, e: f"AGGREGATE({self.sql(e, 'this')}, 0, (acc, x) -> acc + x, acc -> acc)",
             exp.ArrayToString: rename_func("ARRAY_JOIN"),
-            exp.AtTimeZone: lambda self, e: self.func(
-                "FROM_UTC_TIMESTAMP", e.this, e.args.get("zone")
-            ),
+            exp.AtTimeZone: lambda self, e: self.func("FROM_UTC_TIMESTAMP", e.this, e.args.get("zone")),
             exp.BitwiseLeftShift: rename_func("SHIFTLEFT"),
             exp.BitwiseRightShift: rename_func("SHIFTRIGHT"),
             exp.Create: preprocess(
                 [
                     remove_unique_constraints,
-                    lambda e: ctas_with_tmp_tables_to_create_tmp_view(
-                        e, temporary_storage_provider
-                    ),
+                    lambda e: ctas_with_tmp_tables_to_create_tmp_view(e, temporary_storage_provider),
                     move_schema_columns_to_partitioned_by,
                 ]
             ),
@@ -282,9 +272,7 @@ class Spark2(Hive):
             exp.DayOfYear: rename_func("DAYOFYEAR"),
             exp.FileFormatProperty: lambda self, e: f"USING {e.name.upper()}",
             exp.From: transforms.preprocess([_unalias_pivot]),
-            exp.FromTimeZone: lambda self, e: self.func(
-                "TO_UTC_TIMESTAMP", e.this, e.args.get("zone")
-            ),
+            exp.FromTimeZone: lambda self, e: self.func("TO_UTC_TIMESTAMP", e.this, e.args.get("zone")),
             exp.LogicalAnd: rename_func("BOOL_AND"),
             exp.LogicalOr: rename_func("BOOL_OR"),
             exp.Map: _map_sql,
@@ -312,9 +300,8 @@ class Spark2(Hive):
             exp.UnixToTime: _unix_to_time_sql,
             exp.VariancePop: rename_func("VAR_POP"),
             exp.WeekOfYear: rename_func("WEEKOFYEAR"),
-            exp.WithinGroup: transforms.preprocess(
-                [transforms.remove_within_group_for_percentiles]
-            ),
+            exp.WithinGroup: transforms.preprocess([transforms.remove_within_group_for_percentiles]),
+            exp.Format: rename_func("FORMAT_STRING"),
         }
         TRANSFORMS.pop(exp.ArraySort)
         TRANSFORMS.pop(exp.ILike)
@@ -348,9 +335,6 @@ class Spark2(Hive):
             return super().columndef_sql(
                 expression,
                 sep=(
-                    ": "
-                    if isinstance(expression.parent, exp.DataType)
-                    and expression.parent.is_type("struct")
-                    else sep
+                    ": " if isinstance(expression.parent, exp.DataType) and expression.parent.is_type("struct") else sep
                 ),
             )
