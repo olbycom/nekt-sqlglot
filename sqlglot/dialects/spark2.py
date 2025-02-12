@@ -268,7 +268,7 @@ class Spark2(Hive):
             exp.DayOfMonth: rename_func("DAYOFMONTH"),
             exp.DayOfWeek: rename_func("DAYOFWEEK"),
             # (DAY_OF_WEEK(datetime) % 7) + 1 is equivalent to DAYOFWEEK_ISO(datetime)
-            exp.DayOfWeekIso: lambda self, e: f"(({self.func('DAYOFWEEK', e.this)} % 7) + 1)",
+            exp.DayOfWeekIso: lambda self, e: f"CASE WHEN ({self.func('DAYOFWEEK', e.this)} - 1) = 0 THEN 7 ELSE ({self.func('DAYOFWEEK', e.this)} - 1) END",
             exp.DayOfYear: rename_func("DAYOFYEAR"),
             exp.FileFormatProperty: lambda self, e: f"USING {e.name.upper()}",
             exp.From: transforms.preprocess([_unalias_pivot]),
