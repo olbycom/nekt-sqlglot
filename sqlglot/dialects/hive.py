@@ -10,8 +10,9 @@ from sqlglot.dialects.dialect import (
     NormalizationStrategy,
     approx_count_distinct_sql,
     arg_max_or_min_no_count,
-    datestrtodate_sql,
     build_formatted_time,
+    build_regexp_extract,
+    datestrtodate_sql,
     if_sql,
     is_parse_json,
     left_to_substring_sql,
@@ -20,29 +21,28 @@ from sqlglot.dialects.dialect import (
     no_ilike_sql,
     no_recursive_cte_sql,
     no_trycast_sql,
+    property_sql,
     regexp_extract_sql,
     regexp_replace_sql,
     rename_func,
     right_to_substring_sql,
+    sequence_sql,
     strposition_sql,
     struct_extract_sql,
     time_format,
     timestrtotime_sql,
     unit_to_str,
     var_map_sql,
-    sequence_sql,
-    property_sql,
-    build_regexp_extract,
 )
-from sqlglot.transforms import (
-    remove_unique_constraints,
-    ctas_with_tmp_tables_to_create_tmp_view,
-    preprocess,
-    move_schema_columns_to_partitioned_by,
-)
+from sqlglot.generator import unsupported_args
 from sqlglot.helper import seq_get
 from sqlglot.tokens import TokenType
-from sqlglot.generator import unsupported_args
+from sqlglot.transforms import (
+    ctas_with_tmp_tables_to_create_tmp_view,
+    move_schema_columns_to_partitioned_by,
+    preprocess,
+    remove_unique_constraints,
+)
 
 # (FuncType, Multiplier)
 DATE_DELTA_INTERVAL = {
@@ -116,9 +116,7 @@ def _json_format_sql(self: Hive.Generator, expression: exp.JSONFormat) -> str:
             # an array to ensure that "naked" strings like "'a'" will be handled correctly
             wrapped_json = exp.Literal.string(f"[{this.this.name}]")
 
-            from_json = self.func(
-                "FROM_JSON", wrapped_json, self.func("SCHEMA_OF_JSON", wrapped_json)
-            )
+            from_json = self.func("FROM_JSON", wrapped_json, self.func("SCHEMA_OF_JSON", wrapped_json))
             to_json = self.func("TO_JSON", from_json)
 
             # This strips the [, ] delimiters of the dummy array printed by TO_JSON
@@ -406,9 +404,7 @@ class Hive(Dialect):
 
             Reference: https://spark.apache.org/docs/latest/sql-ref-datatypes.html
             """
-            this = super()._parse_types(
-                check_func=check_func, schema=schema, allow_identifiers=allow_identifiers
-            )
+            this = super()._parse_types(check_func=check_func, schema=schema, allow_identifiers=allow_identifiers)
 
             if this and not schema:
                 return this.transform(
@@ -437,9 +433,7 @@ class Hive(Dialect):
         def _parse_parameter(self) -> exp.Parameter:
             self._match(TokenType.L_BRACE)
             this = self._parse_identifier() or self._parse_primary_or_var()
-            expression = self._match(TokenType.COLON) and (
-                self._parse_identifier() or self._parse_primary_or_var()
-            )
+            expression = self._match(TokenType.COLON) and (self._parse_identifier() or self._parse_primary_or_var())
             self._match(TokenType.R_BRACE)
             return self.expression(exp.Parameter, this=this, expression=expression)
 
@@ -515,12 +509,9 @@ class Hive(Dialect):
             exp.DateDiff: _date_diff_sql,
             exp.DateStrToDate: datestrtodate_sql,
             exp.DateSub: _add_date_sql,
-            exp.DateToDi: lambda self,
-            e: f"CAST(DATE_FORMAT({self.sql(e, 'this')}, {Hive.DATEINT_FORMAT}) AS INT)",
-            exp.DiToDate: lambda self,
-            e: f"TO_DATE(CAST({self.sql(e, 'this')} AS STRING), {Hive.DATEINT_FORMAT})",
-            exp.FileFormatProperty: lambda self,
-            e: f"STORED AS {self.sql(e, 'this') if isinstance(e.this, exp.InputOutputFormat) else e.name.upper()}",
+            exp.DateToDi: lambda self, e: f"CAST(DATE_FORMAT({self.sql(e, 'this')}, {Hive.DATEINT_FORMAT}) AS INT)",
+            exp.DiToDate: lambda self, e: f"TO_DATE(CAST({self.sql(e, 'this')} AS STRING), {Hive.DATEINT_FORMAT})",
+            exp.FileFormatProperty: lambda self, e: f"STORED AS {self.sql(e, 'this') if isinstance(e.this, exp.InputOutputFormat) else e.name.upper()}",
             exp.StorageHandlerProperty: lambda self, e: f"STORED BY {self.sql(e, 'this')}",
             exp.FromBase64: rename_func("UNBASE64"),
             exp.GenerateSeries: sequence_sql,
@@ -529,9 +520,7 @@ class Hive(Dialect):
             exp.ILike: no_ilike_sql,
             exp.IsNan: rename_func("ISNAN"),
             exp.JSONExtract: lambda self, e: self.func("GET_JSON_OBJECT", e.this, e.expression),
-            exp.JSONExtractScalar: lambda self, e: self.func(
-                "GET_JSON_OBJECT", e.this, e.expression
-            ),
+            exp.JSONExtractScalar: lambda self, e: self.func("GET_JSON_OBJECT", e.this, e.expression),
             exp.JSONFormat: _json_format_sql,
             exp.Left: left_to_substring_sql,
             exp.Map: var_map_sql,
@@ -539,9 +528,7 @@ class Hive(Dialect):
             exp.MD5Digest: lambda self, e: self.func("UNHEX", self.func("MD5", e.this)),
             exp.Min: min_or_least,
             exp.MonthsBetween: lambda self, e: self.func("MONTHS_BETWEEN", e.this, e.expression),
-            exp.NotNullColumnConstraint: lambda _, e: (
-                "" if e.args.get("allow_null") else "NOT NULL"
-            ),
+            exp.NotNullColumnConstraint: lambda _, e: ("" if e.args.get("allow_null") else "NOT NULL"),
             exp.VarMap: var_map_sql,
             exp.Create: preprocess(
                 [
@@ -561,7 +548,10 @@ class Hive(Dialect):
             exp.SchemaCommentProperty: lambda self, e: self.naked_property(e),
             exp.ArrayUniqueAgg: rename_func("COLLECT_SET"),
             exp.Split: lambda self, e: self.func(
-                "SPLIT", e.this, self.func("CONCAT", "'\\\\Q'", e.expression, "'\\\\E'")
+                "SPLIT",
+                e.this,
+                e.expression,
+                "-1",
             ),
             exp.Select: transforms.preprocess(
                 [
@@ -571,9 +561,7 @@ class Hive(Dialect):
                     transforms.any_to_exists,
                 ]
             ),
-            exp.StrPosition: lambda self, e: strposition_sql(
-                self, e, func_name="LOCATE", supports_position=True
-            ),
+            exp.StrPosition: lambda self, e: strposition_sql(self, e, func_name="LOCATE", supports_position=True),
             exp.StrToDate: _str_to_date_sql,
             exp.StrToTime: _str_to_time_sql,
             exp.StrToUnix: _str_to_unix_sql,
@@ -586,26 +574,21 @@ class Hive(Dialect):
             exp.TimestampTrunc: lambda self, e: self.func("TRUNC", e.this, unit_to_str(e)),
             exp.TimeToUnix: rename_func("UNIX_TIMESTAMP"),
             exp.ToBase64: rename_func("BASE64"),
-            exp.TsOrDiToDi: lambda self,
-            e: f"CAST(SUBSTR(REPLACE(CAST({self.sql(e, 'this')} AS STRING), '-', ''), 1, 8) AS INT)",
+            exp.TsOrDiToDi: lambda self, e: f"CAST(SUBSTR(REPLACE(CAST({self.sql(e, 'this')} AS STRING), '-', ''), 1, 8) AS INT)",
             exp.TsOrDsAdd: _add_date_sql,
             exp.TsOrDsDiff: _date_diff_sql,
             exp.TsOrDsToDate: _to_date_sql,
             exp.TryCast: no_trycast_sql,
             exp.Unicode: rename_func("ASCII"),
-            exp.UnixToStr: lambda self, e: self.func(
-                "FROM_UNIXTIME", e.this, time_format("hive")(self, e)
-            ),
+            exp.UnixToStr: lambda self, e: self.func("FROM_UNIXTIME", e.this, time_format("hive")(self, e)),
             exp.UnixToTime: _unix_to_time_sql,
             exp.UnixToTimeStr: rename_func("FROM_UNIXTIME"),
             exp.Unnest: rename_func("EXPLODE"),
             exp.PartitionedByProperty: lambda self, e: f"PARTITIONED BY {self.sql(e, 'this')}",
             exp.NumberToStr: rename_func("FORMAT_NUMBER"),
             exp.National: lambda self, e: self.national_sql(e, prefix=""),
-            exp.ClusteredColumnConstraint: lambda self,
-            e: f"({self.expressions(e, 'this', indent=False)})",
-            exp.NonClusteredColumnConstraint: lambda self,
-            e: f"({self.expressions(e, 'this', indent=False)})",
+            exp.ClusteredColumnConstraint: lambda self, e: f"({self.expressions(e, 'this', indent=False)})",
+            exp.NonClusteredColumnConstraint: lambda self, e: f"({self.expressions(e, 'this', indent=False)})",
             exp.NotForReplicationColumnConstraint: lambda *_: "",
             exp.OnProperty: lambda *_: "",
             exp.PrimaryKeyColumnConstraint: lambda *_: "PRIMARY KEY",
@@ -687,9 +670,7 @@ class Hive(Dialect):
                 size_expression = expression.find(exp.DataTypeParam)
                 if size_expression:
                     size = int(size_expression.name)
-                    expression = (
-                        exp.DataType.build("float") if size <= 32 else exp.DataType.build("double")
-                    )
+                    expression = exp.DataType.build("float") if size <= 32 else exp.DataType.build("double")
 
             return super().datatype_sql(expression)
 
